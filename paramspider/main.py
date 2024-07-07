@@ -8,19 +8,19 @@ from colorama import Fore, Style
 from . import client
 from urllib.parse import urlparse, parse_qs, urlencode
 
-# Inisialisasi kode warna untuk output terminal
+# Initialize color codes for terminal output
 yellow_color_code = "\033[93m"
 reset_color_code = "\033[0m"
 
-# Inisialisasi colorama untuk output terminal berwarna
+# Initialize colorama for colored terminal output
 colorama.init(autoreset=True)
 
-# Format log pesan
+# Log message format
 log_format = '%(message)s'
 logging.basicConfig(format=log_format, level=logging.INFO)
 logging.getLogger('').handlers[0].setFormatter(logging.Formatter(log_format))
 
-# Daftar ekstensi file yang ingin diambil dari Wayback Machine
+# List of file extensions to fetch from Wayback Machine
 HARDCODED_EXTENSIONS = [
     ".jpg", ".jpeg", ".png", ".gif", ".pdf", ".svg", ".json",
     ".css", ".js", ".webp", ".woff", ".woff2", ".eot", ".ttf", ".otf", ".mp4", ".txt"
@@ -28,14 +28,14 @@ HARDCODED_EXTENSIONS = [
 
 def has_extension(url, extensions):
     """
-    Memeriksa apakah URL memiliki ekstensi file yang sesuai dengan daftar ekstensi yang diberikan.
+    Check if the URL has a file extension matching any of the provided extensions.
 
     Args:
-        url (str): URL yang akan diperiksa.
-        extensions (list): Daftar ekstensi file yang ingin diperiksa.
+        url (str): The URL to check.
+        extensions (list): List of file extensions to match against.
 
     Returns:
-        bool: True jika URL memiliki ekstensi yang sesuai, False jika tidak.
+        bool: True if the URL has a matching extension, False otherwise.
     """
     parsed_url = urlparse(url)
     path = parsed_url.path
@@ -45,13 +45,13 @@ def has_extension(url, extensions):
 
 def clean_url(url):
     """
-    Membersihkan URL dengan menghapus informasi port yang redundan untuk URL HTTP dan HTTPS.
+    Clean the URL by removing redundant port information for HTTP and HTTPS URLs.
 
     Args:
-        url (str): URL yang akan dibersihkan.
+        url (str): The URL to clean.
 
     Returns:
-        str: URL yang telah dibersihkan.
+        str: Cleaned URL.
     """
     parsed_url = urlparse(url)
 
@@ -62,14 +62,14 @@ def clean_url(url):
 
 def clean_urls(urls, extensions, placeholder):
     """
-    Membersihkan daftar URL dengan menghapus parameter dan string query yang tidak perlu.
+    Clean a list of URLs by removing unnecessary parameters and query strings.
 
     Args:
-        urls (list): Daftar URL yang akan dibersihkan.
-        extensions (list): Daftar ekstensi file yang ingin diperiksa.
+        urls (list): List of URLs to clean.
+        extensions (list): List of file extensions to check against.
 
     Returns:
-        list: Daftar URL yang telah dibersihkan.
+        list: List of cleaned URLs.
     """
     cleaned_urls = set()
     for url in urls:
@@ -85,87 +85,87 @@ def clean_urls(urls, extensions, placeholder):
 
 def fetch_and_clean_urls(domain, extensions, stream_output, proxy, placeholder, output_path):
     """
-    Mengambil dan membersihkan URL terkait domain tertentu dari Wayback Machine.
+    Fetch and clean URLs related to a specific domain from the Wayback Machine.
 
     Args:
-        domain (str): Nama domain untuk mengambil URL terkait.
-        extensions (list): Daftar ekstensi file yang ingin diperiksa.
-        stream_output (bool): True jika ingin streaming URL ke terminal.
-        output_path (str): Path untuk menyimpan URL yang telah dibersihkan.
+        domain (str): The domain name to fetch URLs for.
+        extensions (list): List of file extensions to check against.
+        stream_output (bool): True to stream URLs to the terminal.
+        output_path (str): Path to save the cleaned URLs.
 
     Returns:
         None
     """
-    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Mengambil URLs untuk {Fore.CYAN + domain + Style.RESET_ALL}")
+    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Fetching URLs for {Fore.CYAN + domain + Style.RESET_ALL}")
 
-    # Hapus http:// atau https:// dari domain jika ada
+    # Remove http:// or https:// from domain if present
     domain = domain.replace("http://", "").replace("https://", "")
 
-    # Buat URI untuk melakukan pencarian URL pada Wayback Machine
+    # Construct URI for fetching URLs from Wayback Machine
     wayback_uri = f"https://web.archive.org/cdx/search/cdx?url={domain}/*&output=txt&collapse=urlkey&fl=original&page=/"
 
-    # Inisialisasi variabel untuk percobaan pengambilan
+    # Initialize variables for retrying fetching
     max_retries = 3
-    retry_delay = 5  # Detik
+    retry_delay = 5  # Seconds
     for attempt in range(max_retries):
         try:
-            # Mengambil konten dari URL Wayback Machine dengan menggunakan client.fetch_url_content
+            # Fetch content from Wayback Machine URL using client.fetch_url_content
             response = client.fetch_url_content(wayback_uri, proxy)
 
-            # Jika responsenya sukses (status code 200), lanjutkan
+            # If successful response (status code 200), continue
             if response.status_code == 200:
                 break
         except requests.RequestException as e:
-            # Tangani kesalahan jika ada, dan coba lagi setelah beberapa detik
+            # Handle errors if any, and retry after some delay
             logging.error(f"Error fetching URL {wayback_uri}. Retrying in {retry_delay} seconds... (Attempt {attempt + 1}/{max_retries})")
             time.sleep(retry_delay)
     else:
-        # Jika setelah beberapa percobaan tetap gagal, log kesalahan
-        logging.error(f"Gagal mengambil URL {wayback_uri} setelah {max_retries} percobaan.")
+        # If still unsuccessful after retries, log an error
+        logging.error(f"Failed to fetch URL {wayback_uri} after {max_retries} attempts.")
         return
 
-    # Memisahkan respons teks menjadi daftar URL
+    # Split response text into list of URLs
     urls = response.text.split()
 
-    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Ditemukan {Fore.GREEN + str(len(urls)) + Style.RESET_ALL} URLs untuk {Fore.CYAN + domain + Style.RESET_ALL}")
+    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Found {Fore.GREEN + str(len(urls)) + Style.RESET_ALL} URLs for {Fore.CYAN + domain + Style.RESET_ALL}")
 
-    # Membersihkan daftar URL dari parameter yang tidak perlu
+    # Clean the list of URLs from unnecessary parameters
     cleaned_urls = clean_urls(urls, extensions, placeholder)
-    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Membersihkan URLs untuk {Fore.CYAN + domain + Style.RESET_ALL}")
-    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Ditemukan {Fore.GREEN + str(len(cleaned_urls)) + Style.RESET_ALL} URLs setelah membersihkan")
-    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Mengekstrak URLs dengan parameter")
+    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Cleaning URLs for {Fore.CYAN + domain + Style.RESET_ALL}")
+    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Found {Fore.GREEN + str(len(cleaned_urls)) + Style.RESET_ALL} URLs after cleaning")
+    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Extracting URLs with parameters")
 
-    # Menyimpan hasil ke file teks di folder home user jika output_path tidak diberikan
+    # Save the result to a text file in user's home directory if output_path is not provided
     home_dir = os.path.expanduser("~")
     base_result_file = os.path.join(home_dir, f"param.txt")
 
     if output_path:
         if os.path.exists(output_path):
-            raise FileExistsError(f"Berkas output '{output_path}' sudah ada. Silakan tentukan nama yang berbeda.")
+            raise FileExistsError(f"The output file '{output_path}' already exists. Please specify a different name.")
         base_result_file = output_path
 
     result_file = base_result_file
     counter = 1
 
-    # Tambahkan nomor urut jika nama file yang sama sudah ada dan output_path tidak diberikan
+    # Append sequence number if a file with the same name exists and output_path is not provided
     while not output_path and os.path.exists(result_file):
         result_file = f"{os.path.splitext(base_result_file)[0]}_{counter}.txt"
         counter += 1
 
-    # Menyimpan cleaned_urls ke dalam file teks
+    # Save cleaned_urls to a text file
     with open(result_file, "w") as f:
         for url in cleaned_urls:
-            if "?" in url:  # Hanya menyimpan URL yang memiliki parameter
+            if "?" in url:  # Only save URLs that have parameters
                 f.write(url + "\n")
                 if stream_output:
                     print(url)
 
-    # Log pesan bahwa URLs telah disimpan
-    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} URLs yang telah dibersihkan disimpan di {Fore.CYAN + result_file + Style.RESET_ALL}")
+    # Log message that URLs have been saved
+    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Cleaned URLs saved to {Fore.CYAN + result_file + Style.RESET_ALL}")
 
 def main():
     """
-    Fungsi utama untuk menangani argumen baris perintah dan memulai proses penambangan URL.
+    Main function to handle command-line arguments and start URL mining process.
     """
     log_text = """
                                       _    __
