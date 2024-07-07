@@ -1,21 +1,26 @@
+import time
+import requests
 import argparse
 import os
 import logging
 import colorama
 from colorama import Fore, Style
-from . import client  # Importing client from a module named "client"
+from . import client
 from urllib.parse import urlparse, parse_qs, urlencode
-import os
 
+# Initialize color codes for terminal output
 yellow_color_code = "\033[93m"
 reset_color_code = "\033[0m"
 
-colorama.init(autoreset=True)  # Initialize colorama for colored terminal output
+# Initialize colorama for colored terminal output
+colorama.init(autoreset=True)
 
+# Log message format
 log_format = '%(message)s'
 logging.basicConfig(format=log_format, level=logging.INFO)
 logging.getLogger('').handlers[0].setFormatter(logging.Formatter(log_format))
 
+# List of file extensions to fetch from Wayback Machine
 HARDCODED_EXTENSIONS = [
     ".jpg", ".jpeg", ".png", ".gif", ".pdf", ".svg", ".json",
     ".css", ".js", ".webp", ".woff", ".woff2", ".eot", ".ttf", ".otf", ".mp4", ".txt"
@@ -49,7 +54,7 @@ def clean_url(url):
         str: Cleaned URL.
     """
     parsed_url = urlparse(url)
-    
+
     if (parsed_url.port == 80 and parsed_url.scheme == "http") or (parsed_url.port == 443 and parsed_url.scheme == "https"):
         parsed_url = parsed_url._replace(netloc=parsed_url.netloc.rsplit(":", 1)[0])
 
@@ -78,7 +83,7 @@ def clean_urls(urls, extensions, placeholder):
             cleaned_urls.add(cleaned_url)
     return list(cleaned_urls)
 
-def fetch_and_clean_urls(domain, extensions, stream_output,proxy, placeholder):
+def fetch_and_clean_urls(domain, extensions, stream_output, proxy, placeholder, output_path):
     """
     Fetch and clean URLs related to a specific domain from the Wayback Machine.
 
@@ -86,59 +91,100 @@ def fetch_and_clean_urls(domain, extensions, stream_output,proxy, placeholder):
         domain (str): The domain name to fetch URLs for.
         extensions (list): List of file extensions to check against.
         stream_output (bool): True to stream URLs to the terminal.
+        output_path (str): Path to save the cleaned URLs.
 
     Returns:
         None
     """
     logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Fetching URLs for {Fore.CYAN + domain + Style.RESET_ALL}")
+
+    # Remove http:// or https:// from domain if present
+    domain = domain.replace("http://", "").replace("https://", "")
+
+    # Construct URI for fetching URLs from Wayback Machine
     wayback_uri = f"https://web.archive.org/cdx/search/cdx?url={domain}/*&output=txt&collapse=urlkey&fl=original&page=/"
-    response = client.fetch_url_content(wayback_uri,proxy)
+
+    # Initialize variables for retrying fetching
+    max_retries = 3
+    retry_delay = 5  # Seconds
+    for attempt in range(max_retries):
+        try:
+            # Fetch content from Wayback Machine URL using client.fetch_url_content
+            response = client.fetch_url_content(wayback_uri, proxy)
+
+            # If successful response (status code 200), continue
+            if response.status_code == 200:
+                break
+        except requests.RequestException as e:
+            # Handle errors if any, and retry after some delay
+            logging.error(f"Error fetching URL {wayback_uri}. Retrying in {retry_delay} seconds... (Attempt {attempt + 1}/{max_retries})")
+            time.sleep(retry_delay)
+    else:
+        # If still unsuccessful after retries, log an error
+        logging.error(f"Failed to fetch URL {wayback_uri} after {max_retries} attempts.")
+        return
+
+    # Split response text into list of URLs
     urls = response.text.split()
-    
+
     logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Found {Fore.GREEN + str(len(urls)) + Style.RESET_ALL} URLs for {Fore.CYAN + domain + Style.RESET_ALL}")
-    
+
+    # Clean the list of URLs from unnecessary parameters
     cleaned_urls = clean_urls(urls, extensions, placeholder)
     logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Cleaning URLs for {Fore.CYAN + domain + Style.RESET_ALL}")
     logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Found {Fore.GREEN + str(len(cleaned_urls)) + Style.RESET_ALL} URLs after cleaning")
     logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Extracting URLs with parameters")
-    
-    results_dir = "results"
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
 
-    result_file = os.path.join(results_dir, f"{domain}.txt")
+    # Save the result to a text file in user's home directory if output_path is not provided
+    home_dir = os.path.expanduser("~")
+    base_result_file = os.path.join(home_dir, f"param.txt")
 
+    if output_path:
+        if os.path.exists(output_path):
+            raise FileExistsError(f"The output file '{output_path}' already exists. Please specify a different name.")
+        base_result_file = output_path
+
+    result_file = base_result_file
+    counter = 1
+
+    # Append sequence number if a file with the same name exists and output_path is not provided
+    while not output_path and os.path.exists(result_file):
+        result_file = f"{os.path.splitext(base_result_file)[0]}_{counter}.txt"
+        counter += 1
+
+    # Save cleaned_urls to a text file
     with open(result_file, "w") as f:
         for url in cleaned_urls:
-            if "?" in url:
+            if "?" in url:  # Only save URLs that have parameters
                 f.write(url + "\n")
                 if stream_output:
                     print(url)
-    
-    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Saved cleaned URLs to {Fore.CYAN + result_file + Style.RESET_ALL}")
+
+    # Log message that URLs have been saved
+    logging.info(f"{Fore.YELLOW}[INFO]{Style.RESET_ALL} Cleaned URLs saved to {Fore.CYAN + result_file + Style.RESET_ALL}")
 
 def main():
     """
     Main function to handle command-line arguments and start URL mining process.
     """
     log_text = """
-           
-                                      _    __       
+                                      _    __
    ___  ___ ________ ___ _  ___ ___  (_)__/ /__ ____
   / _ \/ _ `/ __/ _ `/  ' \(_-</ _ \/ / _  / -_) __/
- / .__/\_,_/_/  \_,_/_/_/_/___/ .__/_/\_,_/\__/_/   
-/_/                          /_/                    
+ / .__/\_,_/_/  \_,_/_/_/_/___/ .__/_/\_,_/\__/_/
+/_/                          /_/
 
-                              with <3 by @0xasm0d3us           
+                              with <3 by @0xasm0d3us
     """
     colored_log_text = f"{yellow_color_code}{log_text}{reset_color_code}"
     print(colored_log_text)
-    parser = argparse.ArgumentParser(description="Mining URLs from dark corners of Web Archives ")
+    parser = argparse.ArgumentParser(description="Mining URLs from dark corners of Web Archives")
     parser.add_argument("-d", "--domain", help="Domain name to fetch related URLs for.")
     parser.add_argument("-l", "--list", help="File containing a list of domain names.")
     parser.add_argument("-s", "--stream", action="store_true", help="Stream URLs on the terminal.")
-    parser.add_argument("--proxy", help="Set the proxy address for web requests.",default=None)
-    parser.add_argument("-p", "--placeholder", help="placeholder for parameter values", default="FUZZ")
+    parser.add_argument("-o", "--output", help="Output file path")
+    parser.add_argument("--proxy", help="Set the proxy address for web requests.", default=None)
+    parser.add_argument("-p", "--placeholder", help="Placeholder for parameter values", default="FUZZ")
     args = parser.parse_args()
 
     if not args.domain and not args.list:
@@ -158,11 +204,11 @@ def main():
     extensions = HARDCODED_EXTENSIONS
 
     if args.domain:
-        fetch_and_clean_urls(domain, extensions, args.stream, args.proxy, args.placeholder)
+        fetch_and_clean_urls(domain, extensions, args.stream, args.proxy, args.placeholder, args.output)
 
     if args.list:
         for domain in domains:
-            fetch_and_clean_urls(domain, extensions, args.stream,args.proxy, args.placeholder)
+            fetch_and_clean_urls(domain, extensions, args.stream, args.proxy, args.placeholder, args.output)
 
 if __name__ == "__main__":
     main()
